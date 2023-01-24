@@ -33,8 +33,6 @@
 #include <set>
 #include <unordered_map>
 
-#include "../../InternalHeaderCheck.h"
-
 namespace Eigen {
 namespace TensorSycl {
 namespace internal {
@@ -141,7 +139,7 @@ class PointerMapper {
 
   /* basic type for all buffers
    */
-  using buffer_t = cl::sycl::buffer<buffer_data_type_t>;
+  using buffer_t = cl::sycl::buffer_mem;
 
   /**
    * Node that stores information about a device allocation.
@@ -168,7 +166,7 @@ class PointerMapper {
   /**
    * Obtain the insertion point in the pointer map for
    * a pointer of the given size.
-   * \param requiredSize Size attempted to reclaim
+   * \param requiredSize Size attemted to reclaim
    */
   typename pointerMap_t::iterator get_insertion_point(size_t requiredSize) {
     typename pointerMap_t::iterator retVal;
@@ -223,6 +221,7 @@ class PointerMapper {
         m_pointerMap.clear();
         EIGEN_THROW_X(
             std::out_of_range("The pointer is not registered in the map\n"));
+
       }
       --node;
     }
@@ -236,14 +235,17 @@ class PointerMapper {
   template <typename buffer_data_type = buffer_data_type_t>
   cl::sycl::buffer<buffer_data_type, 1> get_buffer(
       const virtual_pointer_t ptr) {
+    using sycl_buffer_t = cl::sycl::buffer<buffer_data_type, 1>;
 
+    // get_node() returns a `buffer_mem`, so we need to cast it to a `buffer<>`.
+    // We can do this without the `buffer_mem` being a pointer, as we
+    // only declare member variables in the base class (`buffer_mem`) and not in
+    // the child class (`buffer<>).
     auto node = get_node(ptr);
-    auto& map_node = node->second;
     eigen_assert(node->first == ptr || node->first < ptr);
-    eigen_assert(ptr < static_cast<virtual_pointer_t>(map_node.m_size +
+    eigen_assert(ptr < static_cast<virtual_pointer_t>(node->second.m_size +
                                                       node->first));
-    return map_node.m_buffer.reinterpret<buffer_data_type>(
-        cl::sycl::range<1>{map_node.m_size / sizeof(buffer_data_type)});
+    return *(static_cast<sycl_buffer_t *>(&node->second.m_buffer));
   }
 
   /**
@@ -425,11 +427,8 @@ class PointerMapper {
   template <class BufferT>
   virtual_pointer_t add_pointer_impl(BufferT b) {
     virtual_pointer_t retVal = nullptr;
-    size_t bufSize = b.get_count() * sizeof(buffer_data_type_t);
-    auto byte_buffer =
-        b.template reinterpret<buffer_data_type_t>(cl::sycl::range<1>{bufSize});
-    pMapNode_t p{byte_buffer, bufSize, false};
-
+    size_t bufSize = b.get_count();
+    pMapNode_t p{b, bufSize, false};
     // If this is the first pointer:
     if (m_pointerMap.empty()) {
       virtual_pointer_t initialVal{m_baseAddress};
@@ -549,7 +548,7 @@ struct RangeAccess {
   static const auto is_place_holder = cl::sycl::access::placeholder::true_t;
   typedef T scalar_t;
   typedef scalar_t &ref_t;
-  typedef scalar_t *ptr_t;
+  typedef typename cl::sycl::global_ptr<scalar_t>::pointer_t ptr_t;
 
   // the accessor type does not necessarily the same as T
   typedef cl::sycl::accessor<scalar_t, 1, AcMd, global_access, is_place_holder>
@@ -569,12 +568,7 @@ struct RangeAccess {
   RangeAccess(std::nullptr_t) : RangeAccess() {}
   // This template parameter must be removed and scalar_t should be replaced
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE ptr_t get_pointer() const {
-    typedef cl::sycl::multi_ptr<scalar_t,
-                                cl::sycl::access::address_space::generic_space,
-                                cl::sycl::access::decorated::no>
-        multi_ptr;
-    multi_ptr p(access_);
-    return (p + offset_).get_raw();
+    return (access_.get_pointer().get() + offset_);
   }
   template <typename Index>
   EIGEN_DEVICE_FUNC EIGEN_STRONG_INLINE self_t &operator+=(Index offset) {

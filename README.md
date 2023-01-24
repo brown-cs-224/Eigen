@@ -1,3 +1,5 @@
-Current version: https://gitlab.com/libeigen/eigen/ at commit 5a7ca681
+# Eigen
 
-Note: the official Eigen releases are quite far behind git (the latest stable release, 3.4.0, is from summer 2021) which is why we don't use the LTS release.
+This repository contains Eigen's source code (found in their `/Eigen` subdirectory) from release `3.4.0` (equivalently, commit `3147391d`).
+
+The release announcement dated August 18, 2021, can be found [here](https://gitlab.com/libeigen/eigen/-/releases/3.4.0).
